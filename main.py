@@ -113,7 +113,82 @@ if not FORCED_TRAIN and os.path.exists(model_save_path):
     checkpoint = torch.load(model_save_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
-    print("저장된 모델을 불러왔습니다.")
+    print("저장된 모델을 불러왔습지만 학습은 진행하지 않습니다.")
+
+elif FORCED_TRAIN and os.path.exists(model_save_path):
+    print("저장된 모델에 이어서 학습합니다.")
+    checkpoint = torch.load(model_save_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model = model.to(device)
+    best_test_loss = float('inf')
+    best_params = None
+
+    params = [p for p in model.parameters() if p.requires_grad]
+    ##################################
+    # 4. optimizer와 scheduler를 설정하세요.
+    # 적절한 optimizer를 선택하고, lr과 weight_decay를 조절하세요.
+    ##################################
+    optimizer = torch.optim.Adam(params, lr=0.0001, weight_decay=0.005)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.3)
+    ##################################
+    num_epochs = 30
+
+    for epoch in range(num_epochs):
+        model.train()
+        i = 0
+        total_loss = 0
+        for images, targets in data_loader:
+
+            images = [image.to(device) for image in images]
+            images = torch.stack(images)
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+            loss_dict = model(images, targets)
+            losses = sum(loss for loss in loss_dict.values())
+
+            optimizer.zero_grad()
+            losses.backward()
+            optimizer.step()
+            total_loss += losses.item()
+
+            # if i % 10 == 0:
+            #     print(f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{len(data_loader)}], Loss: {losses.item():.4f}")
+            i += 1
+
+        scheduler.step()
+        print('======================================')
+        print(f"Epoch [{epoch+1}] completed.")
+        # 한 에폭마다 train loss, test loss 계산
+        with torch.no_grad():
+
+            test_loss = 0
+            for images, targets in data_loader_test:
+                images = [image.to(device) for image in images]
+                images = torch.stack(images)
+                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+                loss_dict = model(images, targets)
+                losses = sum(loss for loss in loss_dict.values())
+                test_loss += losses.item()
+            print(f"Train Loss: {total_loss / len(data_loader):.4f}")
+            print(f"Test Loss: {test_loss / len(data_loader_test):.4f}")
+            if test_loss < best_test_loss:
+                best_test_loss = test_loss
+                best_params = copy.deepcopy(model.state_dict())
+                print("Best model updated.")
+        print('======================================')
+
+
+    # 모델 저장
+    model.load_state_dict(best_params)
+    checkpoint = {
+        'epoch': num_epochs,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict()
+    }
+    torch.save(checkpoint, model_save_path)
+    print("모델을 저장하였습니다.")
+
 else:
     print("저장된 모델이 없습니다. 학습을 시작합니다.")
 
